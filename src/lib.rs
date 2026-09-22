@@ -28,14 +28,14 @@
 pub mod forwarded;
 pub mod network;
 
-use std::net::{IpAddr, SocketAddr};
+use std::net::IpAddr;
 
 use identify::{IdentifyError, Presented, StreamArrival, TransportIdentifier};
 use network::Network;
 use xcore::{Arriving, Mechanism};
 
 /// The arrival property the transport puts the socket peer on.
-pub const PEER_ADDRESS: &str = "peer.address";
+pub use identify::peer::PEER_ADDRESS;
 
 /// Reads the peer address, through a trusted proxy where there is one.
 #[derive(Clone, Debug, Default)]
@@ -79,7 +79,7 @@ impl TransportIdentifier for IpIdentifier {
         let Some(peer) = arrival.property(PEER_ADDRESS) else {
             return Ok(None);
         };
-        let peer = parse_address(peer)?;
+        let peer = identify::peer::address(peer)?;
 
         if self.trusts(peer)
             && let Some((header, chain)) = forwarded::chain(arrival)?
@@ -94,34 +94,6 @@ impl TransportIdentifier for IpIdentifier {
 
         Ok(Some(Presented::passed(self.mechanism(), peer.to_string())))
     }
-}
-
-/// Read an address as a transport writes it: bare, with a port, or an IPv6
-/// address in brackets with or without one.
-///
-/// # Errors
-///
-/// Where the text is none of those.
-pub fn parse_address(text: &str) -> Result<IpAddr, IdentifyError> {
-    let text = text.trim();
-
-    if let Ok(address) = text.parse::<IpAddr>() {
-        return Ok(address);
-    }
-    if let Ok(socket) = text.parse::<SocketAddr>() {
-        return Ok(socket.ip());
-    }
-    if let Some(inner) = text
-        .strip_prefix('[')
-        .and_then(|rest| rest.strip_suffix(']'))
-        && let Ok(address) = inner.parse::<IpAddr>()
-    {
-        return Ok(address);
-    }
-
-    Err(IdentifyError::new(format!(
-        "the peer address {text:?} is not an IP address"
-    )))
 }
 
 #[cfg(test)]
