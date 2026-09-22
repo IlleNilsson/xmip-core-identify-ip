@@ -5,7 +5,7 @@
 //! The commonest allow-list there is, and spoofable on most networks, which
 //! is why the mechanism identifies and never authenticates
 //! ([`xcore::mechanism::ip`]). The transport puts the socket peer on the
-//! arrival as [`PEER_ADDRESS`] — `192.0.2.10:4711`, `[2001:db8::1]:443` or a
+//! arrival as [`net::PEER_ADDRESS`] — `192.0.2.10:4711`, `[2001:db8::1]:443` or a
 //! bare address — and this presents the address without its port, passed.
 //!
 //! A load balancer or reverse proxy in front of the node makes the socket
@@ -26,16 +26,12 @@
 //! through a proxy) and `ip.forwarded-by` (which header said so).
 
 pub mod forwarded;
-pub mod network;
 
 use std::net::IpAddr;
 
 use identify::{IdentifyError, Presented, StreamArrival, TransportIdentifier};
-use network::Network;
+use net::{Network, PEER_ADDRESS};
 use xcore::{Arriving, Mechanism};
-
-/// The arrival property the transport puts the socket peer on.
-pub use identify::peer::PEER_ADDRESS;
 
 /// Reads the peer address, through a trusted proxy where there is one.
 #[derive(Clone, Debug, Default)]
@@ -79,7 +75,7 @@ impl TransportIdentifier for IpIdentifier {
         let Some(peer) = arrival.property(PEER_ADDRESS) else {
             return Ok(None);
         };
-        let peer = identify::peer::address(peer)?;
+        let peer = net::address::parse(peer)?;
 
         if self.trusts(peer)
             && let Some((header, chain)) = forwarded::chain(arrival)?

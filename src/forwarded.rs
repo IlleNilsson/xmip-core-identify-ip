@@ -84,7 +84,7 @@ pub fn x_forwarded_for(value: &str) -> Result<Vec<IpAddr>, IdentifyError> {
 }
 
 fn hop_address(hop: &str, header: &str) -> Result<IpAddr, IdentifyError> {
-    identify::peer::address(hop).map_err(|_| {
+    net::address::parse(hop).map_err(|_| {
         IdentifyError::new(format!(
             "the {header} header names {hop:?}, which is not an address"
         ))
