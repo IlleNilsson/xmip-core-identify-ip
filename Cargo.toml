@@ -20,7 +20,7 @@ path = "src/lib.rs"
 identify = { package = "xmip-core-identify", git = "https://github.com/IlleNilsson/xmip-core-identify", branch = "main" }
 xcore = { package = "xmip-core", git = "https://github.com/IlleNilsson/xmip-core", branch = "main" }
 # The peer's address and the network a trusted proxy is written as.
-net = { package = "xmip-core-net", git = "https://github.com/IlleNilsson/xmip-core-net", branch = "main" }
+net = { package = "xmip-core-library-net", git = "https://github.com/IlleNilsson/xmip-core-library-net", branch = "main" }
 
 [dev-dependencies]
 # The Stream an arrival carries, for the tests that build one.
