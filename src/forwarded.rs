@@ -10,12 +10,8 @@
 
 use std::net::IpAddr;
 
+use context::property::{HTTP_FORWARDED, HTTP_X_FORWARDED_FOR};
 use identify::{IdentifyError, StreamArrival};
-
-/// The arrival property carrying RFC 7239 `Forwarded`.
-pub const FORWARDED: &str = "http.header.forwarded";
-/// The arrival property carrying `X-Forwarded-For`.
-pub const X_FORWARDED_FOR: &str = "http.header.x-forwarded-for";
 
 /// The chain the arrival carries, client first, and which header carried it.
 /// `Forwarded` wins where both are present, being the standard one.
@@ -28,10 +24,10 @@ pub const X_FORWARDED_FOR: &str = "http.header.x-forwarded-for";
 pub fn chain(
     arrival: &StreamArrival<'_>,
 ) -> Result<Option<(&'static str, Vec<IpAddr>)>, IdentifyError> {
-    if let Some(value) = arrival.property(FORWARDED) {
+    if let Some(value) = arrival.property(HTTP_FORWARDED) {
         return Ok(Some(("forwarded", forwarded_for(value)?)));
     }
-    if let Some(value) = arrival.property(X_FORWARDED_FOR) {
+    if let Some(value) = arrival.property(HTTP_X_FORWARDED_FOR) {
         return Ok(Some(("x-forwarded-for", x_forwarded_for(value)?)));
     }
 
