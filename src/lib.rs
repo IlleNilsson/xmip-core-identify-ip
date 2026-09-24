@@ -5,7 +5,7 @@
 //! The commonest allow-list there is, and spoofable on most networks, which
 //! is why the mechanism identifies and never authenticates
 //! ([`xcore::mechanism::ip`]). The transport puts the socket peer on the
-//! arrival as [`net::PEER_ADDRESS`] — `192.0.2.10:4711`, `[2001:db8::1]:443` or a
+//! arrival as [`context::property::PEER_ADDRESS`] — `192.0.2.10:4711`, `[2001:db8::1]:443` or a
 //! bare address — and this presents the address without its port, passed.
 //!
 //! A load balancer or reverse proxy in front of the node makes the socket
@@ -29,8 +29,9 @@ pub mod forwarded;
 
 use std::net::IpAddr;
 
+use context::property::PEER_ADDRESS;
 use identify::{IdentifyError, Presented, StreamArrival, TransportIdentifier};
-use net::{Network, PEER_ADDRESS};
+use net::Network;
 use xcore::{Arriving, Mechanism};
 
 /// Reads the peer address, through a trusted proxy where there is one.
