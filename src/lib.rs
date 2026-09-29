@@ -211,7 +211,7 @@ mod tests {
     #[test]
     fn a_peer_that_is_not_an_address_is_an_error() {
         let stream = stream();
-        let facts = facts(&[("peer.address", "partner.example")]);
+        let facts = facts(&[("peer.address", "party.example")]);
         let arrival = StreamArrival::new(&stream, Arriving::Pushed, "https://xmip/in", &facts);
 
         let failure = IpIdentifier::new()
@@ -220,7 +220,7 @@ mod tests {
 
         assert_eq!(
             failure.to_string(),
-            "the peer address \"partner.example\" is not an IP address"
+            "the peer address \"party.example\" is not an IP address"
         );
     }
 
@@ -229,7 +229,7 @@ mod tests {
         // Xmip was the client; the address on the arrival is the server's.
         let stream = stream();
         let facts = facts(&[("peer.address", "192.0.2.10:21")]);
-        let arrival = StreamArrival::new(&stream, Arriving::Scheduled, "ftp://partner/out", &facts);
+        let arrival = StreamArrival::new(&stream, Arriving::Scheduled, "ftp://party/out", &facts);
 
         assert!(
             IpIdentifier::new()
