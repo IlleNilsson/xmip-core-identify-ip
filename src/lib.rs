@@ -96,12 +96,6 @@ impl TransportIdentifier for IpIdentifier {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use stream::Stream;
-    use xcore::StreamId;
-
-    fn stream() -> Stream {
-        Stream::new(StreamId::new(1), b"<order/>".to_vec(), None)
-    }
 
     fn facts(pairs: &[(&str, &str)]) -> Vec<(String, String)> {
         pairs
@@ -118,9 +112,8 @@ mod tests {
 
     #[test]
     fn the_socket_peer_is_the_claim_without_its_port() {
-        let stream = stream();
         let facts = facts(&[("peer.address", "192.0.2.10:4711")]);
-        let arrival = StreamArrival::new(&stream, Arriving::Pushed, "https://xmip/in", &facts);
+        let arrival = StreamArrival::new(Arriving::Pushed, "https://xmip/in", &facts);
 
         let claim = IpIdentifier::new()
             .identify(&arrival)
@@ -134,13 +127,11 @@ mod tests {
 
     #[test]
     fn a_forwarded_header_is_read_only_behind_a_trusted_proxy() {
-        let stream = stream();
         let through_proxy = facts(&[
             ("peer.address", "10.1.2.3:80"),
             ("http.header.forwarded", "for=198.51.100.17;proto=https"),
         ]);
-        let arrival =
-            StreamArrival::new(&stream, Arriving::Pushed, "https://xmip/in", &through_proxy);
+        let arrival = StreamArrival::new(Arriving::Pushed, "https://xmip/in", &through_proxy);
 
         let claim = behind_proxies()
             .identify(&arrival)
@@ -161,8 +152,7 @@ mod tests {
             ("peer.address", "203.0.113.9:80"),
             ("http.header.forwarded", "for=198.51.100.17"),
         ]);
-        let arrival =
-            StreamArrival::new(&stream, Arriving::Pushed, "https://xmip/in", &from_anyone);
+        let arrival = StreamArrival::new(Arriving::Pushed, "https://xmip/in", &from_anyone);
 
         let claim = behind_proxies()
             .identify(&arrival)
@@ -176,7 +166,6 @@ mod tests {
     fn the_client_is_the_first_untrusted_hop_from_the_proxy_end() {
         // Two proxies of ours appended themselves; the hop before them is the
         // client, and whatever the client itself wrote to the left is ignored.
-        let stream = stream();
         let facts = facts(&[
             ("peer.address", "[2001:db8::1]:443"),
             (
@@ -184,7 +173,7 @@ mod tests {
                 "1.2.3.4, 198.51.100.17, 10.0.0.5",
             ),
         ]);
-        let arrival = StreamArrival::new(&stream, Arriving::Pushed, "https://xmip/in", &facts);
+        let arrival = StreamArrival::new(Arriving::Pushed, "https://xmip/in", &facts);
 
         let claim = behind_proxies()
             .identify(&arrival)
@@ -197,8 +186,7 @@ mod tests {
 
     #[test]
     fn an_arrival_with_no_peer_presents_nothing() {
-        let stream = stream();
-        let arrival = StreamArrival::new(&stream, Arriving::Pushed, "file:///in/x", &[]);
+        let arrival = StreamArrival::new(Arriving::Pushed, "file:///in/x", &[]);
 
         assert!(
             IpIdentifier::new()
@@ -210,9 +198,8 @@ mod tests {
 
     #[test]
     fn a_peer_that_is_not_an_address_is_an_error() {
-        let stream = stream();
         let facts = facts(&[("peer.address", "party.example")]);
-        let arrival = StreamArrival::new(&stream, Arriving::Pushed, "https://xmip/in", &facts);
+        let arrival = StreamArrival::new(Arriving::Pushed, "https://xmip/in", &facts);
 
         let failure = IpIdentifier::new()
             .identify(&arrival)
@@ -227,9 +214,8 @@ mod tests {
     #[test]
     fn a_scheduled_pickup_has_no_peer_to_present() {
         // Xmip was the client; the address on the arrival is the server's.
-        let stream = stream();
         let facts = facts(&[("peer.address", "192.0.2.10:21")]);
-        let arrival = StreamArrival::new(&stream, Arriving::Scheduled, "ftp://party/out", &facts);
+        let arrival = StreamArrival::new(Arriving::Scheduled, "ftp://party/out", &facts);
 
         assert!(
             IpIdentifier::new()
