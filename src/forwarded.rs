@@ -7,14 +7,46 @@
 //! addresses. Both read client first, proxy last: each proxy appends itself
 //! to the right, so the right end is the only end anyone this side of the
 //! proxy can vouch for.
+//!
+//! A proxy writes one of the two, and the client may write either: a
+//! `Forwarded` the client sent passes a proxy that only appends to
+//! `X-Forwarded-For` untouched. So the header read is the one the proxy is
+//! configured as writing, and the other is never read.
 
 use std::net::IpAddr;
 
 use context::property::{HTTP_FORWARDED, HTTP_X_FORWARDED_FOR};
 use identify::{IdentifyError, StreamArrival};
 
-/// The chain the arrival carries, client first, and which header carried it.
-/// `Forwarded` wins where both are present, being the standard one.
+/// The header a trusted proxy writes the chain into.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum ForwardedHeader {
+    /// `Forwarded`, RFC 7239.
+    Forwarded,
+    /// `X-Forwarded-For`.
+    XForwardedFor,
+}
+
+impl ForwardedHeader {
+    /// The name the evidence gives it: `forwarded`, `x-forwarded-for`.
+    #[must_use]
+    pub const fn name(self) -> &'static str {
+        match self {
+            Self::Forwarded => "forwarded",
+            Self::XForwardedFor => "x-forwarded-for",
+        }
+    }
+
+    const fn property(self) -> &'static str {
+        match self {
+            Self::Forwarded => HTTP_FORWARDED,
+            Self::XForwardedFor => HTTP_X_FORWARDED_FOR,
+        }
+    }
+}
+
+/// The chain `header` carries on the arrival, client first; `None` where
+/// the arrival does not carry that header. The other header is not read.
 ///
 /// # Errors
 ///
@@ -23,15 +55,16 @@ use identify::{IdentifyError, StreamArrival};
 /// client.
 pub fn chain(
     arrival: &StreamArrival<'_>,
-) -> Result<Option<(&'static str, Vec<IpAddr>)>, IdentifyError> {
-    if let Some(value) = arrival.property(HTTP_FORWARDED) {
-        return Ok(Some(("forwarded", forwarded_for(value)?)));
+    header: ForwardedHeader,
+) -> Result<Option<Vec<IpAddr>>, IdentifyError> {
+    let Some(value) = arrival.property(header.property()) else {
+        return Ok(None);
+    };
+    match header {
+        ForwardedHeader::Forwarded => forwarded_for(value),
+        ForwardedHeader::XForwardedFor => x_forwarded_for(value),
     }
-    if let Some(value) = arrival.property(HTTP_X_FORWARDED_FOR) {
-        return Ok(Some(("x-forwarded-for", x_forwarded_for(value)?)));
-    }
-
-    Ok(None)
+    .map(Some)
 }
 
 /// The client in a chain: the first hop from the proxy end that is not a
@@ -90,6 +123,7 @@ fn hop_address(hop: &str, header: &str) -> Result<IpAddr, IdentifyError> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use xcore::Arriving;
 
     fn address(text: &str) -> IpAddr {
         text.parse().expect("an address")
@@ -115,6 +149,32 @@ mod tests {
         assert_eq!(
             failure.to_string(),
             "the Forwarded header names \"_hidden\", which is not an address"
+        );
+    }
+
+    #[test]
+    fn only_the_header_asked_for_is_read() {
+        let facts = vec![
+            (HTTP_FORWARDED.to_string(), "for=192.0.2.60".to_string()),
+            (
+                HTTP_X_FORWARDED_FOR.to_string(),
+                "198.51.100.17".to_string(),
+            ),
+        ];
+        let arrival = StreamArrival::new(Arriving::Pushed, "https://xmip/in", &facts);
+        let bare = StreamArrival::new(Arriving::Pushed, "https://xmip/in", &[]);
+
+        assert_eq!(
+            chain(&arrival, ForwardedHeader::XForwardedFor).expect("read"),
+            Some(vec![address("198.51.100.17")])
+        );
+        assert_eq!(
+            chain(&arrival, ForwardedHeader::Forwarded).expect("read"),
+            Some(vec![address("192.0.2.60")])
+        );
+        assert_eq!(
+            chain(&bare, ForwardedHeader::Forwarded).expect("read"),
+            None
         );
     }
 

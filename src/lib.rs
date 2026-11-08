@@ -10,11 +10,14 @@
 //!
 //! A load balancer or reverse proxy in front of the node makes the socket
 //! peer the proxy. The identifier takes a list of trusted proxies, as
-//! addresses or prefixes, and only where the socket peer is one of them reads
-//! `Forwarded` (RFC 7239, the `for` parameter) or `X-Forwarded-For` off the
-//! arrival: walking the chain from the proxy end, the first address that is
-//! not a trusted proxy is the client. A forwarded header from an untrusted
-//! peer is ignored, because anyone can write one.
+//! addresses or prefixes, each with the one header it writes: `Forwarded`
+//! (RFC 7239, the `for` parameter) or `X-Forwarded-For`. Only where the
+//! socket peer is one of them is that proxy's header read off the arrival:
+//! walking the chain from the proxy end, the first address that is not a
+//! trusted proxy is the client. A forwarded header from an untrusted peer,
+//! and the header a trusted proxy does not write, are ignored, because the
+//! client can write either and a proxy passes the one it does not write
+//! untouched.
 //!
 //! Only a pushed Stream has a peer. A detected or scheduled arrival presents
 //! nothing here however the property reads: nobody connected, and the
@@ -27,6 +30,8 @@
 
 pub mod forwarded;
 
+pub use forwarded::ForwardedHeader;
+
 use std::net::IpAddr;
 
 use context::property::PEER_ADDRESS;
@@ -37,7 +42,7 @@ use xcore::{Arriving, Mechanism};
 /// Reads the peer address, through a trusted proxy where there is one.
 #[derive(Clone, Debug, Default)]
 pub struct IpIdentifier {
-    trusted: Vec<Network>,
+    trusted: Vec<(Network, ForwardedHeader)>,
 }
 
 impl IpIdentifier {
@@ -47,19 +52,28 @@ impl IpIdentifier {
         Self::default()
     }
 
-    /// Trust a proxy. A forwarded header is read only where the socket peer
-    /// is one of these; the client is the first hop from the proxy end that
-    /// is not.
+    /// Trust a proxy that writes `header`. That header is read only where
+    /// the socket peer is this proxy, and no other header from it is; the
+    /// client is the first hop from the proxy end that is not trusted.
     #[must_use]
-    pub fn trusting(mut self, proxy: Network) -> Self {
-        self.trusted.push(proxy);
+    pub fn trusting(mut self, proxy: Network, header: ForwardedHeader) -> Self {
+        self.trusted.push((proxy, header));
         self
     }
 
     /// Whether this address is one of the trusted proxies.
     #[must_use]
     pub fn trusts(&self, address: IpAddr) -> bool {
-        self.trusted.iter().any(|proxy| proxy.contains(address))
+        self.header_of(address).is_some()
+    }
+
+    /// The header the trusted proxy at `address` writes, the first entry
+    /// naming it deciding.
+    fn header_of(&self, address: IpAddr) -> Option<ForwardedHeader> {
+        self.trusted
+            .iter()
+            .find(|(proxy, _)| proxy.contains(address))
+            .map(|(_, header)| *header)
     }
 }
 
@@ -78,14 +92,14 @@ impl TransportIdentifier for IpIdentifier {
         };
         let peer = net::address::parse(peer)?;
 
-        if self.trusts(peer)
-            && let Some((header, chain)) = forwarded::chain(arrival)?
+        if let Some(header) = self.header_of(peer)
+            && let Some(chain) = forwarded::chain(arrival, header)?
             && let Some(client) = forwarded::client(&chain, |hop| self.trusts(hop))
         {
             return Ok(Some(
                 Presented::passed(self.mechanism(), client.to_string())
                     .with_evidence(PEER_ADDRESS, peer.to_string())
-                    .with_evidence("ip.forwarded-by", header),
+                    .with_evidence("ip.forwarded-by", header.name()),
             ));
         }
 
@@ -106,8 +120,65 @@ mod tests {
 
     fn behind_proxies() -> IpIdentifier {
         IpIdentifier::new()
-            .trusting(Network::parse("10.0.0.0/8").expect("a prefix"))
-            .trusting(Network::parse("2001:db8::1").expect("an address"))
+            .trusting(
+                Network::parse("10.0.0.0/8").expect("a prefix"),
+                ForwardedHeader::Forwarded,
+            )
+            .trusting(
+                Network::parse("2001:db8::1").expect("an address"),
+                ForwardedHeader::XForwardedFor,
+            )
+    }
+
+    #[test]
+    fn a_header_the_trusted_proxy_does_not_write_is_the_clients_and_ignored() {
+        // The attack: the proxy at 2001:db8::1 appends to X-Forwarded-For
+        // and passes a Forwarded the client wrote untouched.
+        let spoofed = facts(&[
+            ("peer.address", "[2001:db8::1]:443"),
+            ("http.header.forwarded", "for=192.0.2.1"),
+            ("http.header.x-forwarded-for", "198.51.100.17"),
+        ]);
+        let arrival = StreamArrival::new(Arriving::Pushed, "https://xmip/in", &spoofed);
+
+        let claim = behind_proxies()
+            .identify(&arrival)
+            .expect("read")
+            .expect("a claim");
+
+        assert_eq!(claim.value, "198.51.100.17");
+        assert_eq!(claim.evidence[1].1, "x-forwarded-for");
+
+        // And the other way round: a proxy that writes Forwarded does not
+        // make an X-Forwarded-For the client wrote the claim.
+        let spoofed = facts(&[
+            ("peer.address", "10.1.2.3:80"),
+            ("http.header.forwarded", "for=198.51.100.17"),
+            ("http.header.x-forwarded-for", "192.0.2.1"),
+        ]);
+        let arrival = StreamArrival::new(Arriving::Pushed, "https://xmip/in", &spoofed);
+
+        let claim = behind_proxies()
+            .identify(&arrival)
+            .expect("read")
+            .expect("a claim");
+
+        assert_eq!(claim.value, "198.51.100.17");
+        assert_eq!(claim.evidence[1].1, "forwarded");
+
+        // Only the header it does not write: the peer itself is the claim.
+        let alone = facts(&[
+            ("peer.address", "10.1.2.3:80"),
+            ("http.header.x-forwarded-for", "192.0.2.1"),
+        ]);
+        let arrival = StreamArrival::new(Arriving::Pushed, "https://xmip/in", &alone);
+
+        let claim = behind_proxies()
+            .identify(&arrival)
+            .expect("read")
+            .expect("a claim");
+
+        assert_eq!(claim.value, "10.1.2.3");
     }
 
     #[test]
