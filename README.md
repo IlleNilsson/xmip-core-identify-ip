@@ -7,11 +7,6 @@ A trusted proxy is configured with the header it writes,
 `ForwardedHeader::Forwarded`. Behind it only that header is read; the other
 is the client's own text, which the proxy passes untouched, and is ignored.
 
-## Toolchain
-
-`rust-toolchain.toml` pins the toolchain for the whole estate. Do not change it
-here.
-
 ## Verification
 
 The included workflow is manual-only and calls the versioned shared workflow at
